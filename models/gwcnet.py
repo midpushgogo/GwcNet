@@ -6,7 +6,7 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 from models.submodule import *
 import math
-
+from layers_package.resample2d_package.resample2d import Resample2d
 
 class feature_extraction(nn.Module):
     def __init__(self, concat_feature=False, concat_feature_channel=12):
@@ -103,15 +103,42 @@ class hourglass(nn.Module):
 
         return conv6
 
+class SA_Module(nn.Module):
+    """
+    Note: simple but effective spatial attention module.
+    """
+
+    def __init__(self, input_nc, output_nc=1, ndf=16):
+        super(SA_Module, self).__init__()
+        self.attention_value = nn.Sequential(
+            nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(ndf),
+            nn.ReLU(True),
+            nn.Conv2d(ndf, ndf, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(ndf),
+            nn.ReLU(True),
+            nn.Conv2d(ndf, output_nc, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        attention_value = self.attention_value(x)
+
+        return attention_value
 
 class GwcNet(nn.Module):
-    def __init__(self, maxdisp, use_concat_volume=False):
+    def __init__(self, maxdisp, use_concat_volume=False,attention=False):
         super(GwcNet, self).__init__()
         self.maxdisp = maxdisp
         self.use_concat_volume = use_concat_volume
 
         self.num_groups = 40
-
+        self.resample = Resample2d()
+        self.attention=attention
+        if self.attention:
+            self.SA1=SA_Module(input_nc=10)
+            self.SA2 = SA_Module(input_nc=10)
+            self.SA3 = SA_Module(input_nc=10)
         if self.use_concat_volume:
             self.concat_channels = 12
             self.feature_extraction = feature_extraction(concat_feature=True,
@@ -187,45 +214,106 @@ class GwcNet(nn.Module):
         out2 = self.dres3(out1)
         out3 = self.dres4(out2)
 
-        if self.training:
-            cost0 = self.classif0(cost0)
-            cost1 = self.classif1(out1)
-            cost2 = self.classif2(out2)
-            cost3 = self.classif3(out3)
 
-            cost0 = F.upsample(cost0, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
+        if self.attention:
+
+            cost0 = self.classif0(cost0)
+
+            cost0 = F.upsample(cost0, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear',align_corners=True)
             cost0 = torch.squeeze(cost0, 1)
             pred0 = F.softmax(cost0, dim=1)
             pred0 = disparity_regression(pred0, self.maxdisp)
 
-            cost1 = F.upsample(cost1, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
+            dummy_flow = torch.autograd.Variable(torch.zeros(pred0.data.shape).cuda())
+            flow = torch.cat((pred0, dummy_flow), dim=1)
+            left_rec = self.resample(right, -flow)
+            error_map = left - left_rec
+            query = torch.cat((left, right, error_map, pred0), dim=1)
+            attention_map = self.attention(query)
+            attention_map = attention_map.unsqueeze(1)
+            cost1 = self.classif1(out1*attention_map)
+
+            cost1 = F.upsample(cost1, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear',align_corners=True)
             cost1 = torch.squeeze(cost1, 1)
             pred1 = F.softmax(cost1, dim=1)
             pred1 = disparity_regression(pred1, self.maxdisp)
+            pred1=pred0+pred1
 
-            cost2 = F.upsample(cost2, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
+            dummy_flow = torch.autograd.Variable(torch.zeros(pred1.data.shape).cuda())
+            flow = torch.cat((pred1, dummy_flow), dim=1)
+            left_rec = self.resample(right, -flow)
+            error_map = left - left_rec
+            query = torch.cat((left, right, error_map, pred1), dim=1)
+            attention_map = self.attention(query)
+            attention_map = attention_map.unsqueeze(1)
+            cost2 = self.classif2(out2*attention_map)
+
+            cost2 = F.upsample(cost2, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear',align_corners=True)
             cost2 = torch.squeeze(cost2, 1)
             pred2 = F.softmax(cost2, dim=1)
             pred2 = disparity_regression(pred2, self.maxdisp)
+            pred2=pred1+pred2
 
-            cost3 = F.upsample(cost3, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
+            dummy_flow = torch.autograd.Variable(torch.zeros(pred2.data.shape).cuda())
+            flow = torch.cat((pred2, dummy_flow), dim=1)
+            left_rec = self.resample(right, -flow)
+            error_map = left - left_rec
+            query = torch.cat((left, right, error_map, pred2), dim=1)
+            attention_map = self.attention(query)
+            attention_map = attention_map.unsqueeze(1)
+            cost3 = self.classif3(out3*attention_map)
+
+            cost3 = F.upsample(cost3, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear',align_corners=True)
             cost3 = torch.squeeze(cost3, 1)
             pred3 = F.softmax(cost3, dim=1)
             pred3 = disparity_regression(pred3, self.maxdisp)
-            return [pred0, pred1, pred2, pred3]
+            pred3=pred2+pred3
+            if self.training:
+                return [pred0, pred1, pred2, pred3]
+            else:
+                return [pred3]
+
 
         else:
-            cost3 = self.classif3(out3)
-            cost3 = F.upsample(cost3, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
-            cost3 = torch.squeeze(cost3, 1)
-            pred3 = F.softmax(cost3, dim=1)
-            pred3 = disparity_regression(pred3, self.maxdisp)
-            return [pred3]
+            if self.training:
+                cost0 = self.classif0(cost0)
+                cost1 = self.classif1(out1)
+                cost2 = self.classif2(out2)
+                cost3 = self.classif3(out3)
+
+                cost0 = F.upsample(cost0, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
+                cost0 = torch.squeeze(cost0, 1)
+                pred0 = F.softmax(cost0, dim=1)
+                pred0 = disparity_regression(pred0, self.maxdisp)
+
+                cost1 = F.upsample(cost1, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
+                cost1 = torch.squeeze(cost1, 1)
+                pred1 = F.softmax(cost1, dim=1)
+                pred1 = disparity_regression(pred1, self.maxdisp)
+
+                cost2 = F.upsample(cost2, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
+                cost2 = torch.squeeze(cost2, 1)
+                pred2 = F.softmax(cost2, dim=1)
+                pred2 = disparity_regression(pred2, self.maxdisp)
+
+                cost3 = F.upsample(cost3, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
+                cost3 = torch.squeeze(cost3, 1)
+                pred3 = F.softmax(cost3, dim=1)
+                pred3 = disparity_regression(pred3, self.maxdisp)
+                return [pred0, pred1, pred2, pred3]
+
+            else:
+                cost3 = self.classif3(out3)
+                cost3 = F.upsample(cost3, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
+                cost3 = torch.squeeze(cost3, 1)
+                pred3 = F.softmax(cost3, dim=1)
+                pred3 = disparity_regression(pred3, self.maxdisp)
+                return [pred3]
 
 
-def GwcNet_G(d):
-    return GwcNet(d, use_concat_volume=False)
+def GwcNet_G(d,attention):
+    return GwcNet(d, use_concat_volume=False,attention=attention)
 
 
-def GwcNet_GC(d):
-    return GwcNet(d, use_concat_volume=True)
+def GwcNet_GC(d,attention):
+    return GwcNet(d, use_concat_volume=True,attention=attention)

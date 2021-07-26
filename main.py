@@ -43,7 +43,7 @@ parser.add_argument('--seed', type=int, default=1, metavar='S', help='random see
 
 parser.add_argument('--summary_freq', type=int, default=20, help='the frequency of saving summary')
 parser.add_argument('--save_freq', type=int, default=1, help='the frequency of saving checkpoint')
-
+parser.add_argument('--attention', action='store_true')
 # parse arguments, set seeds
 args = parser.parse_args()
 torch.manual_seed(args.seed)
@@ -62,7 +62,7 @@ TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_wo
 TestImgLoader = DataLoader(test_dataset, args.test_batch_size, shuffle=False, num_workers=4, drop_last=False)
 
 # model, optimizer
-model = __models__[args.model](args.maxdisp)
+model = __models__[args.model](args.maxdisp,attention=args.attention)
 model = nn.DataParallel(model)
 model.cuda()
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
@@ -98,18 +98,15 @@ def train():
             start_time = time.time()
             do_summary = global_step % args.summary_freq == 0
             loss, scalar_outputs, image_outputs = train_sample(sample, compute_metrics=do_summary)
-            if do_summary:
-                save_scalars(logger, 'train', scalar_outputs, global_step)
-                save_images(logger, 'train', image_outputs, global_step)
+            # if do_summary:
+            #     save_scalars(logger, 'train', scalar_outputs, global_step)
+            #     save_images(logger, 'train', image_outputs, global_step)
             del scalar_outputs, image_outputs
             print('Epoch {}/{}, Iter {}/{}, train loss = {:.3f}, time = {:.3f}'.format(epoch_idx, args.epochs,
                                                                                        batch_idx,
                                                                                        len(TrainImgLoader), loss,
                                                                                        time.time() - start_time))
-        # saving checkpoints
-        if (epoch_idx + 1) % args.save_freq == 0:
-            checkpoint_data = {'epoch': epoch_idx, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
-            torch.save(checkpoint_data, "{}/checkpoint_{:0>6}.ckpt".format(args.logdir, epoch_idx))
+
         gc.collect()
 
         # testing
@@ -119,9 +116,9 @@ def train():
             start_time = time.time()
             do_summary = global_step % args.summary_freq == 0
             loss, scalar_outputs, image_outputs = test_sample(sample, compute_metrics=do_summary)
-            if do_summary:
-                save_scalars(logger, 'test', scalar_outputs, global_step)
-                save_images(logger, 'test', image_outputs, global_step)
+            # if do_summary:
+            #     save_scalars(logger, 'test', scalar_outputs, global_step)
+            #     save_images(logger, 'test', image_outputs, global_step)
             avg_test_scalars.update(scalar_outputs)
             del scalar_outputs, image_outputs
             print('Epoch {}/{}, Iter {}/{}, test loss = {:.3f}, time = {:3f}'.format(epoch_idx, args.epochs,
@@ -131,6 +128,9 @@ def train():
         avg_test_scalars = avg_test_scalars.mean()
         save_scalars(logger, 'fulltest', avg_test_scalars, len(TrainImgLoader) * (epoch_idx + 1))
         print("avg_test_scalars", avg_test_scalars)
+
+        checkpoint_data = {'epoch': epoch_idx, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
+        torch.save(checkpoint_data, "{}/checkpoint_{}_{:.3f}.ckpt".format(args.logdir, epoch_idx,avg_test_scalars["EPE"]))
         gc.collect()
 
 
