@@ -216,20 +216,20 @@ class GwcNet(nn.Module):
 
 
         if self.attention:
-
             cost0 = self.classif0(cost0)
 
             cost0 = F.upsample(cost0, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear',align_corners=True)
             cost0 = torch.squeeze(cost0, 1)
             pred0 = F.softmax(cost0, dim=1)
             pred0 = disparity_regression(pred0, self.maxdisp)
-
+            pred0 =torch.unsqueeze(pred0,dim=1)
             dummy_flow = torch.autograd.Variable(torch.zeros(pred0.data.shape).cuda())
             flow = torch.cat((pred0, dummy_flow), dim=1)
             left_rec = self.resample(right, -flow)
             error_map = left - left_rec
             query = torch.cat((left, right, error_map, pred0), dim=1)
-            attention_map = self.attention(query)
+            attention_map = self.SA1(query)
+            attention_map=F.interpolate(attention_map,scale_factor=0.25)
             attention_map = attention_map.unsqueeze(1)
             cost1 = self.classif1(out1*attention_map)
 
@@ -237,6 +237,7 @@ class GwcNet(nn.Module):
             cost1 = torch.squeeze(cost1, 1)
             pred1 = F.softmax(cost1, dim=1)
             pred1 = disparity_regression(pred1, self.maxdisp)
+            pred1=torch.unsqueeze(pred1,dim=1)
             pred1=pred0+pred1
 
             dummy_flow = torch.autograd.Variable(torch.zeros(pred1.data.shape).cuda())
@@ -244,7 +245,8 @@ class GwcNet(nn.Module):
             left_rec = self.resample(right, -flow)
             error_map = left - left_rec
             query = torch.cat((left, right, error_map, pred1), dim=1)
-            attention_map = self.attention(query)
+            attention_map = self.SA2(query)
+            attention_map=F.interpolate(attention_map,scale_factor=0.25)
             attention_map = attention_map.unsqueeze(1)
             cost2 = self.classif2(out2*attention_map)
 
@@ -252,6 +254,7 @@ class GwcNet(nn.Module):
             cost2 = torch.squeeze(cost2, 1)
             pred2 = F.softmax(cost2, dim=1)
             pred2 = disparity_regression(pred2, self.maxdisp)
+            pred2=torch.unsqueeze(pred2,dim=1)
             pred2=pred1+pred2
 
             dummy_flow = torch.autograd.Variable(torch.zeros(pred2.data.shape).cuda())
@@ -259,7 +262,8 @@ class GwcNet(nn.Module):
             left_rec = self.resample(right, -flow)
             error_map = left - left_rec
             query = torch.cat((left, right, error_map, pred2), dim=1)
-            attention_map = self.attention(query)
+            attention_map = self.SA3(query)
+            attention_map=F.interpolate(attention_map,scale_factor=0.25)
             attention_map = attention_map.unsqueeze(1)
             cost3 = self.classif3(out3*attention_map)
 
@@ -267,7 +271,12 @@ class GwcNet(nn.Module):
             cost3 = torch.squeeze(cost3, 1)
             pred3 = F.softmax(cost3, dim=1)
             pred3 = disparity_regression(pred3, self.maxdisp)
+            pred3=torch.unsqueeze(pred3,dim=1)
             pred3=pred2+pred3
+            pred0=torch.squeeze(pred0,dim=1)
+            pred1=torch.squeeze(pred1,dim=1)
+            pred2=torch.squeeze(pred2,dim=1)
+            pred3=torch.squeeze(pred3,dim=1)
             if self.training:
                 return [pred0, pred1, pred2, pred3]
             else:

@@ -18,7 +18,8 @@ from models import __models__, model_loss
 from utils import *
 from torch.utils.data import DataLoader
 import gc
-
+import warnings
+warnings.filterwarnings('ignore')
 cudnn.benchmark = True
 
 parser = argparse.ArgumentParser(description='Group-wise Correlation Stereo Network (GwcNet)')
@@ -98,7 +99,8 @@ def train():
             start_time = time.time()
             do_summary = global_step % args.summary_freq == 0
             loss, scalar_outputs, image_outputs = train_sample(sample, compute_metrics=do_summary)
-            # if do_summary:
+            if do_summary:
+                print('train EPE',scalar_outputs['EPE'][0])
             #     save_scalars(logger, 'train', scalar_outputs, global_step)
             #     save_images(logger, 'train', image_outputs, global_step)
             del scalar_outputs, image_outputs
@@ -127,10 +129,10 @@ def train():
                                                                                      time.time() - start_time))
         avg_test_scalars = avg_test_scalars.mean()
         save_scalars(logger, 'fulltest', avg_test_scalars, len(TrainImgLoader) * (epoch_idx + 1))
-        print("avg_test_scalars", avg_test_scalars)
+       # print("avg_test_scalars", avg_test_scalars)
 
         checkpoint_data = {'epoch': epoch_idx, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
-        torch.save(checkpoint_data, "{}/checkpoint_{}_{:.3f}.ckpt".format(args.logdir, epoch_idx,avg_test_scalars["EPE"]))
+        torch.save(checkpoint_data, "{}/checkpoint_{}_{:.3f}.ckpt".format(args.logdir, epoch_idx,avg_test_scalars["EPE"][0]))
         gc.collect()
 
 
