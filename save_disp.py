@@ -40,7 +40,7 @@ test_dataset = StereoDataset(args.datapath, args.testlist, False)
 TestImgLoader = DataLoader(test_dataset, 1, shuffle=False, num_workers=4, drop_last=False)
 
 # model, optimizer
-model = __models__[args.model](args.maxdisp)
+model = __models__[args.model](args.maxdisp,show=True)
 model = nn.DataParallel(model)
 model.cuda()
 
@@ -54,7 +54,7 @@ def test():
     os.makedirs('./predictions', exist_ok=True)
     for batch_idx, sample in enumerate(TestImgLoader):
         start_time = time.time()
-        disp_est_np = tensor2numpy(test_sample(sample))
+        disp_est_np = tensor2numpy(test_sample(sample,batch_idx))
         top_pad_np = tensor2numpy(sample["top_pad"])
         right_pad_np = tensor2numpy(sample["right_pad"])
         left_filenames = sample["left_filename"]
@@ -72,9 +72,9 @@ def test():
 
 # test one sample
 @make_nograd_func
-def test_sample(sample):
+def test_sample(sample,idx):
     model.eval()
-    disp_ests = model(sample['left'].cuda(), sample['right'].cuda())
+    disp_ests = model(sample['left'].cuda(), sample['right'].cuda(),idx)
     return disp_ests[-1]
 
 

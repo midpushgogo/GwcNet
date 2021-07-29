@@ -147,7 +147,7 @@ def train_sample(sample, compute_metrics=False):
 
     optimizer.zero_grad()
 
-    disp_ests = model(imgL, imgR)
+    disp_ests = model(imgL, imgR,None)
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
     loss = model_loss(disp_ests, disp_gt, mask)
 
@@ -177,7 +177,7 @@ def test_sample(sample, compute_metrics=True):
     imgR = imgR.cuda()
     disp_gt = disp_gt.cuda()
 
-    disp_ests = model(imgL, imgR)
+    disp_ests = model(imgL, imgR,None)
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
     loss = model_loss(disp_ests, disp_gt, mask)
 

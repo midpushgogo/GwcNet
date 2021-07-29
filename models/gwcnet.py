@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from models.submodule import *
 import math
 from layers_package.resample2d_package.resample2d import Resample2d
-
+from  torchvision import utils as vutils
 class feature_extraction(nn.Module):
     def __init__(self, concat_feature=False, concat_feature_channel=12):
         super(feature_extraction, self).__init__()
@@ -127,7 +127,7 @@ class SA_Module(nn.Module):
         return attention_value
 
 class GwcNet(nn.Module):
-    def __init__(self, maxdisp, use_concat_volume=False,attention=False):
+    def __init__(self, maxdisp, use_concat_volume=False,attention=False,show=False):
         super(GwcNet, self).__init__()
         self.maxdisp = maxdisp
         self.use_concat_volume = use_concat_volume
@@ -135,6 +135,7 @@ class GwcNet(nn.Module):
         self.num_groups = 40
         self.resample = Resample2d()
         self.attention=attention
+        self.show=show
         if self.attention:
             self.SA1=SA_Module(input_nc=10)
             self.SA2 = SA_Module(input_nc=10)
@@ -194,7 +195,7 @@ class GwcNet(nn.Module):
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
 
-    def forward(self, left, right):
+    def forward(self, left, right,idx):
         features_left = self.feature_extraction(left)
         features_right = self.feature_extraction(right)
 
@@ -227,9 +228,14 @@ class GwcNet(nn.Module):
             flow = torch.cat((pred0, dummy_flow), dim=1)
             left_rec = self.resample(right, -flow)
             error_map = left - left_rec
+
             query = torch.cat((left, right, error_map, pred0), dim=1)
             attention_map = self.SA1(query)
             attention_map=F.interpolate(attention_map,scale_factor=0.25)
+            if self.show:
+                vutils.save_image(left_rec[0], "show/"+str(idx)+'rec0.jpg', normalize=True)
+                vutils.save_image(pred0[0], "show/" + str(idx) + 'pre0.jpg', normalize=True)
+                vutils.save_image(attention_map[0], "show/" + str(idx) + 'att0.jpg', normalize=True)
             attention_map = attention_map.unsqueeze(1)
             cost1 = self.classif1(out1*attention_map)
 
@@ -247,6 +253,10 @@ class GwcNet(nn.Module):
             query = torch.cat((left, right, error_map, pred1), dim=1)
             attention_map = self.SA2(query)
             attention_map=F.interpolate(attention_map,scale_factor=0.25)
+            if self.show:
+                vutils.save_image(left_rec[0], "show/"+str(idx)+'rec1.jpg', normalize=True)
+                vutils.save_image(pred1[0], "show/" + str(idx) + 'pre1.jpg', normalize=True)
+                vutils.save_image(attention_map[0], "show/" + str(idx) + 'att1.jpg', normalize=True)
             attention_map = attention_map.unsqueeze(1)
             cost2 = self.classif2(out2*attention_map)
 
@@ -264,6 +274,10 @@ class GwcNet(nn.Module):
             query = torch.cat((left, right, error_map, pred2), dim=1)
             attention_map = self.SA3(query)
             attention_map=F.interpolate(attention_map,scale_factor=0.25)
+            if self.show:
+                vutils.save_image(left_rec[0], "show/"+str(idx)+'rec2.jpg', normalize=True)
+                vutils.save_image(pred2[0], "show/" + str(idx) + 'pre2.jpg', normalize=True)
+                vutils.save_image(attention_map[0], "show/" + str(idx) + 'att2.jpg', normalize=True)
             attention_map = attention_map.unsqueeze(1)
             cost3 = self.classif3(out3*attention_map)
 
@@ -273,6 +287,8 @@ class GwcNet(nn.Module):
             pred3 = disparity_regression(pred3, self.maxdisp)
             pred3=torch.unsqueeze(pred3,dim=1)
             pred3=pred2+pred3
+            if self.show:
+                vutils.save_image(pred3[0], "show/"+str(idx)+'pre3.jpg', normalize=True)
             pred0=torch.squeeze(pred0,dim=1)
             pred1=torch.squeeze(pred1,dim=1)
             pred2=torch.squeeze(pred2,dim=1)
