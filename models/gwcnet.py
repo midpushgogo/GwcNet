@@ -236,6 +236,10 @@ class GwcNet(nn.Module):
                 vutils.save_image(left_rec[0], "show/"+str(idx)+'rec0.jpg', normalize=True)
                 vutils.save_image(pred0[0], "show/" + str(idx) + 'pre0.jpg', normalize=True)
                 vutils.save_image(attention_map[0], "show/" + str(idx) + 'att0.jpg', normalize=True)
+                vutils.save_image(left[0], "show/"+str(idx)+'left.jpg', normalize=True)
+                vutils.save_image(right[0], "show/"+str(idx)+'right.jpg', normalize=True)
+                
+
             attention_map = attention_map.unsqueeze(1)
             cost1 = self.classif1(out1*attention_map)
 
@@ -336,9 +340,9 @@ class GwcNet(nn.Module):
                 return [pred3]
 
 
-def GwcNet_G(d,attention):
-    return GwcNet(d, use_concat_volume=False,attention=attention)
+def GwcNet_G(d,attention,show):
+    return GwcNet(d, use_concat_volume=False,attention=attention,show=show)
 
 
-def GwcNet_GC(d,attention):
-    return GwcNet(d, use_concat_volume=True,attention=attention)
+def GwcNet_GC(d,attention,show):
+    return GwcNet(d, use_concat_volume=True,attention=attention,show=show)
